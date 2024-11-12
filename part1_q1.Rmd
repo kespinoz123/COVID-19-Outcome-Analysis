@@ -1,0 +1,383 @@
+---
+title: "part1_q1"
+author: "Itzel Espinoza"
+date: "2024-11-05"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+```
+
+## Data Exploration
+
+```{r descriptive_stats}
+
+covid_mob_geo_state_df <- read_csv("~/Downloads/Covid_project_2024/covid_mobility_geo_state_daily.csv")
+
+# Making it a data frame
+covid_mob_geo_state_df <- as.data.frame(covid_mob_geo_state_df)
+
+# Making all columns be double type except those that are meant to be character
+covid_mob_geo_state_df <- covid_mob_geo_state_df |>
+  mutate(across(-c(statename, stateabbrev), as.double))
+
+# Check the structure of the modified data frame
+str(covid_mob_geo_state_df)
+
+# Descriptive Stats: Case rate, death rate, hospitalization rate
+covid_mob_geo_state_df  <- covid_mob_geo_state_df |>
+  mutate(
+    case_rate = ifelse(is.na(case_rate), mean(case_rate, na.rm = TRUE), case_rate),
+    death_rate = ifelse(is.na(death_rate), mean(death_rate, na.rm = TRUE), death_rate),
+    hospitalized_rate = ifelse(is.na(hospitalized_rate), mean(hospitalized_rate, na.rm = TRUE), hospitalized_rate)
+  )
+
+# Summary of COVID-19 case rates, death rates and hospitalizations by state
+covid_rates_x_state <- covid_mob_geo_state_df |> 
+  group_by(statefips, statename) |> 
+  summarize(across(c(case_rate, death_rate,new_death_rate, hospitalized_rate), 
+                   list(mean = ~ mean(.x, na.rm = TRUE), 
+                        median = ~ median(.x, na.rm = TRUE), 
+                        sd = ~ sd(.x, na.rm = TRUE)))) 
+
+
+
+# Bar Plot showing Mean COVID-19 Case rates by state in ascending order
+ggplot(data = covid_rates_x_state , aes(x = reorder(statename, case_rate_mean), y = case_rate_mean)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Mean COVID-19 Case Rate by State",
+       x = "State Name",
+       y = "Mean COVID-19 Case Rate") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+# Bar Plot showing Mean COVID-19 Case rates by state in ascending order
+ggplot(data = covid_rates_x_state , aes(x = reorder(statename, death_rate_mean), y = death_rate_mean)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Mean COVID-19 Death Rate by State",
+       x = "State Name",
+       y = "Mean COVID-19 Death Rate") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+```
+
+
+
+#Covid Case Rates, Death Rates and Hospitalization Rates Across States
+
+```{r}
+# normalizing case_rate_mean, death_rate_mean and hospitalization_mean with each other to plot them all together and see how they compare to each other by state  TO DO [make this pplot into a function]
+
+covid_rates_x_state$case_rate_norm <- (covid_rates_x_state$case_rate_mean - mean(covid_rates_x_state$case_rate_mean)) / sd(covid_rates_x_state$case_rate_mean)
+
+covid_rates_x_state$death_rate_norm <- (covid_rates_x_state$death_rate_mean - mean(covid_rates_x_state$death_rate_mean)) / sd(covid_rates_x_state$death_rate_mean)
+
+covid_rates_x_state$hospitalized_rate_norm <- (covid_rates_x_state$hospitalized_rate_mean - mean(covid_rates_x_state$hospitalized_rate_mean)) / sd(covid_rates_x_state$hospitalized_rate_mean)
+
+# Reshape the data to long format for ggplot
+covid_mob_geo_state_long <- covid_rates_x_state %>%
+  pivot_longer(cols = ends_with("norm"), 
+               names_to = "rate_type", 
+               values_to = "value")
+
+
+# Check the number of unique states (there are 51 states because it includes District of Columbia)
+num_unique_states <- covid_mob_geo_state_long %>%
+  distinct(statename)
+
+# Get distinct state names in a sorted order
+distinct_state_names <- covid_mob_geo_state_long %>%
+  distinct(statename) %>%
+  arrange(statename) %>%  # Ensure consistent ordering
+  pull(statename)
+
+# Split into the first 25 and the remaining 26
+first_25_statename <- head(distinct_state_names, 25)
+remaining_26_statename <- tail(distinct_state_names, 26)
+
+# Filter data for the first 25 states
+first_25_states <- covid_mob_geo_state_long %>%
+  filter(statename %in% first_25_statename)
+
+# Filter data for the remaining 26 states
+remaining_26_states <- covid_mob_geo_state_long %>%
+  filter(statename %in% remaining_26_statename)
+
+
+# Function to create the plot
+plot_normalized_rates <- function(data, title_suffix) {
+  ggplot(data, aes(x = statename, y = value, fill = rate_type)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = title_suffix,
+         x = "State Name",
+         y = "Normalized Rate",
+         fill = "Rate Type") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1),
+          legend.position = "bottom")
+}
+
+# Create the plots
+plot1 <- plot_normalized_rates(first_25_states, "Covid Case Rates, Death Rates and Hospitalization Rates Across first 25 States")
+plot2 <- plot_normalized_rates(remaining_26_states, "Covid Case Rates, Death Rates and Hospitalization Rates Across remaining 25 States")
+
+# Display the plots
+plot1
+plot2
+```
+
+
+# average mobility by state 
+```{r}
+
+gpsmob_x_state <- covid_mob_geo_state_df |> 
+  group_by(statefips, statename) |> 
+  summarize(across(c(gps_away_from_home, gps_retail_and_recreation, gps_transit_stations), 
+                   list(mean = ~ mean(.x, na.rm = TRUE), 
+                        median = ~ median(.x, na.rm = TRUE), 
+                        sd = ~ sd(.x, na.rm = TRUE))))
+
+
+# Bar Plot showing Mean GPS Mobility away from home
+ggplot(data = gpsmob_x_state , aes(x = reorder(statename, gps_away_from_home_mean), y = gps_away_from_home_mean)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "GPS Mobility away from home across states",
+       x = "State Name",
+       y = "Mean GPS Mobility away from home") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+# Bar Plot  GPS Mobility at retails and recreatio
+ggplot(data = gpsmob_x_state , aes(x = reorder(statename, gps_retail_and_recreation_mean), y = gps_retail_and_recreation_mean)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "GPS Mobility at retails and recreations across states",
+       x = "State Name",
+       y = "Mean GPS Mobility at retails and recreation") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Bar Plot  GPS Mobility at at transit stations
+ggplot(data = gpsmob_x_state , aes(x = reorder(statename, gps_transit_stations_mean), y = gps_transit_stations_mean)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "GPS Mobility at at transit stations across states",
+       x = "State Name",
+       y = "Mean GPS Mobility at transit stations") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# Hospitalization rates across time by state
+
+```{r}
+
+# Assuming your data frame is called df and has year, month, and day columns
+covid_mob_geo_state_df$date <- as.Date(with(covid_mob_geo_state_df, paste(year, month, day, sep = "-")), format = "%Y-%m-%d")
+
+
+
+states_low_deathrate <- covid_rates_x_state|>
+  arrange(death_rate_mean) |>
+  head(5) |>
+  pull(statename)
+
+states_high_deathrate <- covid_rates_x_state|>
+  arrange(-death_rate_mean) |>
+  head(5) |>
+  pull(statename)
+
+
+  
+
+# Sample time series plot
+# red color = high death rates 
+covid_mob_geo_state_df |> 
+  filter(statename %in% c(states_low_deathrate, states_high_deathrate)) |> 
+  mutate(line_color = if_else(statename %in% states_high_deathrate, "red", "black")) |>  # Create a color column based on statename
+  ggplot(aes(x = date, y = new_death_rate, color = line_color)) +  # Use color column for coloring
+  geom_line() + 
+  labs(title = "Time Series Plot", x = "Date", y = "Death Rate") + 
+  theme_classic() + 
+  scale_x_date(
+    date_breaks = "1 year",              # Set a tick for each year
+    date_labels = "%Y",                  # Show the year as YYYY
+    limits = c(min(covid_mob_geo_state_df$date), 
+               as.Date(format(max(covid_mob_geo_state_df$date) - 1, "%Y-%m-%d"))), # Adjust the limit to exclude 2025
+    breaks = seq(from = min(covid_mob_geo_state_df$date), 
+                 to = as.Date(format(max(covid_mob_geo_state_df$date) - 1, "%Y-%m-%d")), 
+                 by = "1 year")          # Set breaks for every year within the data range
+  ) + 
+  facet_wrap(~ statename, scales = "free_y", ncol = 5) +  # Create a separate plot for each statename
+  scale_color_identity() +  # Use the color values directly from the 'line_color' column
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+# just loooking at 2
+
+states_low_deathrate <- covid_rates_x_state|>
+  arrange(death_rate_mean) |>
+  head(2) |>
+  pull(statename)
+
+states_high_deathrate <- covid_rates_x_state|>
+  arrange(-death_rate_mean) |>
+  head(2) |>
+  pull(statename)
+
+
+
+
+covid_mob_geo_state_df |> 
+  filter(statename %in% c(states_low_deathrate, states_high_deathrate)) |>  # Filter for relevant states
+  ggplot(aes(x = date, y = new_death_rate, group = statename, color = statename)) +  # Color lines based on statename
+  geom_line() + 
+  labs(title = "Time Series Plot of Death Rates", x = "Date", y = "Death Rate") + 
+  theme_classic() + 
+  scale_x_date(
+    date_breaks = "1 year",              # Set a tick for each year
+    date_labels = "%Y",                  # Show the year as YYYY
+    limits = c(min(covid_mob_geo_state_df$date), 
+               as.Date(format(max(covid_mob_geo_state_df$date) - 1, "%Y-%m-%d"))), # Adjust the limit to exclude 2025
+    breaks = seq(from = min(covid_mob_geo_state_df$date), 
+                 to = as.Date(format(max(covid_mob_geo_state_df$date) - 1, "%Y-%m-%d")), 
+                 by = "1 year")          # Set breaks for every year within the data range
+  ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels for readability
+
+
+covid_mob_geo_state_df |> 
+  filter(statename %in% c(states_low_deathrate, states_high_deathrate)) |>  # Filter for relevant states
+  ggplot(aes(x = date, y = new_death_rate, group = statename, color = statename)) +  # Color lines based on statename
+  geom_line(stat = "smooth", method = "loess", size = 1) +  # Apply smoothing directly to lines
+  labs(title = "Smoothed Time Series Plot of Death Rates", x = "Date", y = "Death Rate") + 
+  theme_classic() + 
+  scale_x_date(
+    date_breaks = "1 year",              # Set a tick for each year
+    date_labels = "%Y",                  # Show the year as YYYY
+    limits = c(min(covid_mob_geo_state_df$date), 
+               as.Date(format(max(covid_mob_geo_state_df$date) - 1, "%Y-%m-%d"))), # Adjust the limit to exclude 2025
+    breaks = seq(from = min(covid_mob_geo_state_df$date), 
+                 to = as.Date(format(max(covid_mob_geo_state_df$date) - 1, "%Y-%m-%d")), 
+                 by = "1 year")          # Set breaks for every year within the data range
+  ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels for readability
+
+
+# Calculate the R-squared value for the linear model
+lm_model <- lm(case_rate ~ gps_transit_stations, data = covid_mob_geo_state_df %>% filter(statename == 'Georgia', year < 2023, !is.na(gps_away_from_home)))
+r_squared <- summary(lm_model)$r.squared
+
+# Create the plot
+covid_mob_geo_state_df |> 
+  filter(statename == "Georgia", year < 2023, !is.na(gps_away_from_home)) |>  # Filter for Oregon
+  ggplot(aes(x = gps_away_from_home, y = case_rate)) +  # Set axes
+  geom_point() +  # Scatterplot points
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Best-fit line without confidence interval
+  labs(title = "Scatterplot of Case Rate vs. GPS Away From Home (Oregon)", 
+       x = "GPS Away From Home", 
+       y = "Case Rate") + 
+  theme_minimal() +  # Use a clean, minimal theme
+  annotate("text", x = max(covid_mob_geo_state_df$gps_away_from_home) * 0.8, y = max(covid_mob_geo_state_df$case_rate) * 0.9, 
+           label = paste("R² = ", round(r_squared, 2)), color = "blue", size = 5)  # Add R-squared value as annotation
+
+
+# Count the number of NA values in the gps_away_from_home column
+num_na <- sum(is.na(covid_mob_geo_state_df$gps_away_from_home))
+
+# Print the result
+num_na
+
+
+
+# Load necessary libraries
+library(purrr)
+
+# Function to calculate R-squared for each state
+calculate_r_squared <- function(state_name, data) {
+  lm_model <- lm(case_rate ~ gps_transit_stations, data = data %>% filter(statename == state_name, year < 2023))
+  r_squared <- summary(lm_model)$r.squared
+  return(data.frame(state_name = state_name, r_squared = r_squared))
+}
+
+# Apply the function to each state and calculate R-squared values
+r_squared_values <- covid_mob_geo_state_df %>%
+  distinct(statename) %>%  # Get distinct state names
+  pull(statename) %>%  # Pull the vector of state names
+  map_dfr(~ calculate_r_squared(.x, covid_mob_geo_state_df))  # Apply the function and combine results
+
+# Find the state with the largest R-squared value
+state_with_max_r_squared <- r_squared_values %>%
+  filter(r_squared == max(r_squared))  # Filter for the state with the highest R-squared
+
+# View the result
+state_with_max_r_squared
+
+
+
+
+
+
+
+
+
+# Care rate and away from home per day
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Filter out rows with NA values and select only Oregon
+covid_mob_geo_state_filtered <- covid_mob_geo_state_df %>%
+  filter(statename == "New Jersey", 
+         !is.na(new_case_rate), 
+         !is.na(gps_away_from_home), 
+         !is.na(date))
+
+# Scale gps_away_from_home to match the range of new_case_rate
+min_new_case_rate <- min(covid_mob_geo_state_filtered$new_case_rate, na.rm = TRUE)
+max_new_case_rate <- max(covid_mob_geo_state_filtered$new_case_rate, na.rm = TRUE)
+
+covid_mob_geo_state_filtered <- covid_mob_geo_state_filtered %>%
+  mutate(
+    gps_away_from_home_scaled = (gps_away_from_home - min(gps_away_from_home, na.rm = TRUE)) / 
+      (max(gps_away_from_home, na.rm = TRUE) - min(gps_away_from_home, na.rm = TRUE)) *
+      (max_new_case_rate - min_new_case_rate) + min_new_case_rate
+  )
+
+# Reshape data to long format for plotting
+covid_long <- covid_mob_geo_state_filtered %>%
+  pivot_longer(cols = c(new_case_rate, gps_away_from_home_scaled), 
+               names_to = "variable", 
+               values_to = "value")
+
+# Plot the data
+ggplot(covid_long, aes(x = date, y = value, color = variable)) +
+  geom_point(alpha = 0.7) +                  # Scatter points with slight transparency
+  geom_line(alpha = 0.5) +                   # Add a line for better trend visualization
+  labs(title = "Scatter Plot of New Case Rate and Scaled GPS Away from Home over Time in Oregon",
+       x = "Date",
+       y = "Value") +
+  theme_classic() +
+  scale_color_manual(values = c("new_case_rate" = "blue", "gps_away_from_home_scaled" = "red")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) # Rotate x-axis labels for readability
+
+
+
+
+
+```
+
